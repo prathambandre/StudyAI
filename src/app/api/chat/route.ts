@@ -46,11 +46,7 @@ export async function POST(request: NextRequest) {
 
     if (documentId) {
       const queryEmbedding = await generateEmbedding(message);
-      const results = similaritySearch(queryEmbedding, 5);
-
-      const docResults = results.filter(
-        (r) => r.metadata.documentId === documentId
-      );
+      const docResults = similaritySearch(queryEmbedding, 5, documentId);
 
       if (docResults.length > 0) {
         context = docResults

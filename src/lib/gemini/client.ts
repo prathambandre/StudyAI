@@ -16,5 +16,5 @@ function getGenAI(): GoogleGenerativeAI {
 }
 
 export function getGeminiModel() {
-  return getGenAI().getGenerativeModel({ model: "gemini-1.5-flash" });
+  return getGenAI().getGenerativeModel({ model: "gemini-flash-lite-latest" });
 }

@@ -74,11 +74,13 @@ interface SearchResult {
 
 export function similaritySearch(
   queryEmbedding: number[],
-  topK: number = 5
+  topK: number = 5,
+  documentId?: string
 ): SearchResult[] {
   const results: SearchResult[] = [];
 
   for (const [id, entry] of store) {
+    if (documentId && entry.metadata.documentId !== documentId) continue;
     const score = cosineSimilarity(queryEmbedding, entry.embedding);
     results.push({ id, score, metadata: entry.metadata });
   }

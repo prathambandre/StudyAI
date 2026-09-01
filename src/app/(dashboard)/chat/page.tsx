@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion, type Variants } from "framer-motion";
 import {
   Plus,
@@ -56,7 +56,24 @@ const quickPrompts = [
 ];
 
 export default function ChatPage() {
+  return (
+    <Suspense fallback={<ChatFallback />}>
+      <ChatContent />
+    </Suspense>
+  );
+}
+
+function ChatFallback() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <Skeleton className="h-6 w-48" />
+    </div>
+  );
+}
+
+function ChatContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
 
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
@@ -67,10 +84,12 @@ export default function ChatPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedDocument, setSelectedDocument] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [initialChat, setInitialChat] = useState<{ id: string; prompt: string } | null>(null);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
     let cancelled = false;
+    const urlDocId = searchParams.get("document");
 
     const load = async () => {
       try {
@@ -90,7 +109,13 @@ export default function ChatPage() {
 
         if (cancelled) return;
         setConversations((convRes.data as ConversationRow[] | null) ?? []);
-        setDocuments((docRes.data as DocumentRow[] | null) ?? []);
+        const loadedDocs = (docRes.data as DocumentRow[] | null) ?? [];
+        setDocuments(loadedDocs);
+        // /chat?document=<id> deep link: preselect the uploaded document so the
+        // uploader's post-upload redirect lands in a document-scoped chat.
+        if (urlDocId && loadedDocs.some((d) => d.id === urlDocId)) {
+          setSelectedDocument(urlDocId);
+        }
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : "Failed to load conversations");
@@ -104,7 +129,7 @@ export default function ChatPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [searchParams]);
 
   const startNewChat = useCallback(async () => {
     if (creating) return;
@@ -125,8 +150,11 @@ export default function ChatPage() {
       if (insertError) throw new Error(insertError.message);
 
       const conversation = data as ConversationRow;
+      const trimmedPrompt = prompt.trim();
       setConversations((prev) => [conversation, ...prev]);
       setSelectedId(conversation.id);
+      // Hand the picked quick prompt to ChatInterface as the first message.
+      setInitialChat(trimmedPrompt ? { id: conversation.id, prompt: trimmedPrompt } : null);
       setPrompt("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create conversation");
@@ -274,8 +302,12 @@ export default function ChatPage() {
         <Card className="flex h-full flex-col overflow-hidden">
           {selectedConversation ? (
             <ChatInterface
+              key={selectedConversation.id}
               conversationId={selectedConversation.id}
               documentId={selectedConversation.document_id ?? undefined}
+              initialPrompt={
+                initialChat?.id === selectedConversation.id ? initialChat.prompt : null
+              }
             />
           ) : (
             <WelcomePanel

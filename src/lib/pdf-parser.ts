@@ -1,5 +1,5 @@
 interface PDFResult {
-  text: string;
+  pages: string[];
   pageCount: number;
 }
 
@@ -8,6 +8,8 @@ interface PdfJsWorkerGlobal {
     WorkerMessageHandler: unknown;
   };
 }
+
+const PDFJS_VERSION = "6.3.289";
 
 export async function extractTextFromPDF(buffer: Buffer): Promise<PDFResult> {
   // Run pdf.js entirely on the main thread. Next.js's bundler can't resolve
@@ -23,42 +25,52 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<PDFResult> {
   }
 
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer) });
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    // Maps non-embedded PDF fonts (silences pdf.js's standard-fonts warning
+    // and improves extraction on PDFs that don't embed their fonts).
+    standardFontDataUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/standard_fonts/`,
+  });
   const doc = await loadingTask.promise;
 
-  const pageCount = doc.numPages;
-
-  let fullText = "";
-  for (let i = 1; i <= pageCount; i++) {
+  const pages: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
     const content = await page.getTextContent();
     const pageText = content.items
       .map((item) => ("str" in item ? item.str : ""))
       .join(" ");
-    fullText += pageText + "\n\n";
+    pages.push(pageText.trim());
   }
 
   void (loadingTask as unknown as { destroy: () => Promise<void> }).destroy();
-  return {
-    text: fullText.trim(),
-    pageCount,
-  };
+  return { pages, pageCount: pages.length };
 }
 
-export function chunkText(
-  text: string,
+export interface Chunk {
+  content: string;
+  pageNumber: number;
+}
+
+export function chunkPages(
+  pages: string[],
   chunkSize: number = 1000,
   overlap: number = 200
-): string[] {
-  const chunks: string[] = [];
-  let start = 0;
+): Chunk[] {
+  const chunks: Chunk[] = [];
 
-  while (start < text.length) {
-    const end = Math.min(start + chunkSize, text.length);
-    chunks.push(text.slice(start, end));
-    start = end - overlap;
-    if (start + overlap >= text.length) break;
-  }
+  pages.forEach((pageText, pageIndex) => {
+    let start = 0;
+    while (start < pageText.length) {
+      const end = Math.min(start + chunkSize, pageText.length);
+      chunks.push({
+        content: pageText.slice(start, end).trim(),
+        pageNumber: pageIndex + 1,
+      });
+      start = end - overlap;
+      if (start >= pageText.length || end === pageText.length) break;
+    }
+  });
 
-  return chunks;
+  return chunks.filter((c) => c.content.length > 0);
 }

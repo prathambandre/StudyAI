@@ -24,11 +24,13 @@ interface ChatMessage {
 interface ChatInterfaceProps {
   conversationId: string;
   documentId?: string;
+  initialPrompt?: string | null;
 }
 
 export default function ChatInterface({
   conversationId,
   documentId,
+  initialPrompt,
 }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -36,6 +38,7 @@ export default function ChatInterface({
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
+  const sentInitial = useRef(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -78,9 +81,12 @@ export default function ChatInterface({
     });
   }, [messages, sending, error]);
 
-  const handleSend = useCallback(async () => {
-    const content = input.trim();
-    if (!content || sending) return;
+  // A quick prompt picked on the start-Chat form becomes the first message:
+  // send it automatically once the (empty) conversation has loaded.
+  const handleSend = useCallback(
+    async (contentOverride?: string) => {
+      const content = (contentOverride ?? input).trim();
+      if (!content || sending) return;
 
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -118,7 +124,7 @@ export default function ChatInterface({
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: data?.reply || data?.content || "",
+          content: data?.response || data?.reply || data?.content || "",
           sources: data?.sources ?? null,
           created_at: new Date().toISOString(),
         },
@@ -130,6 +136,21 @@ export default function ChatInterface({
       setSending(false);
     }
   }, [input, sending, conversationId, documentId]);
+
+  // A quick prompt picked on the start-Chat form becomes the first message:
+  // send it automatically once the (empty) conversation has loaded.
+  useEffect(() => {
+    if (!initialPrompt || sentInitial.current || sending) return;
+    if (loading || messages.length > 0) return;
+    const raf =
+      typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame
+        : ((cb: () => void) => setTimeout(cb, 16));
+    raf(() => {
+      sentInitial.current = true;
+      void handleSend(initialPrompt);
+    });
+  }, [initialPrompt, messages.length, loading, sending, handleSend]);
 
   const toggleSource = useCallback((messageId: string) => {
     setExpandedSources((prev) => ({ ...prev, [messageId]: !prev[messageId] }));

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { extractTextFromPDF, chunkText } from "@/lib/pdf-parser";
-import { generateEmbedding } from "@/lib/gemini/embeddings";
+import { extractTextFromPDF, chunkPages } from "@/lib/pdf-parser";
+import { generateEmbeddings } from "@/lib/gemini/embeddings";
 import { addEmbedding } from "@/lib/vector-store";
 import fs from "fs";
 import path from "path";
@@ -53,8 +53,8 @@ export async function POST(request: NextRequest) {
     const filePath = path.join(uploadsDir, fileName);
     fs.writeFileSync(filePath, buffer);
 
-    const { text, pageCount } = await extractTextFromPDF(buffer);
-    const chunks = chunkText(text);
+    const { pages, pageCount } = await extractTextFromPDF(buffer);
+    const chunks = chunkPages(pages);
 
     const { data: document, error: docError } = await supabase
       .from("documents")
@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
         user_id: user.id,
         title,
         file_name: file.name,
+        file_path: `/uploads/${fileName}`,
         file_size: file.size,
         page_count: pageCount,
         status: "processing",
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (docError) {
+      console.error("Upload: failed to create document:", docError);
       return NextResponse.json(
         { error: "Failed to create document" },
         { status: 500 }
@@ -81,16 +83,12 @@ export async function POST(request: NextRequest) {
       content: string;
       page_number: number;
       chunk_index: number;
-    }[] = [];
-
-    for (let i = 0; i < chunks.length; i++) {
-      chunkRecords.push({
-        document_id: document.id,
-        content: chunks[i],
-        page_number: 1,
-        chunk_index: i,
-      });
-    }
+    }[] = chunks.map((chunk, i) => ({
+      document_id: document.id,
+      content: chunk.content,
+      page_number: chunk.pageNumber,
+      chunk_index: i,
+    }));
 
     const { data: insertedChunks, error: chunkError } = await supabase
       .from("chunks")
@@ -104,13 +102,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const embeddings = await generateEmbeddings(chunks.map((c) => c.content));
+
     for (let i = 0; i < insertedChunks.length; i++) {
-      const embedding = await generateEmbedding(chunks[i]);
-      addEmbedding(insertedChunks[i].id, embedding, {
+      addEmbedding(insertedChunks[i].id, embeddings[i], {
         chunkId: insertedChunks[i].id,
         documentId: document.id,
-        content: chunks[i],
-        pageNumber: 1,
+        content: chunks[i].content,
+        pageNumber: chunks[i].pageNumber,
       });
     }
 

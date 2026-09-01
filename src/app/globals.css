@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Class-based dark mode for Tailwind v4 (default is OS media query only).
+   This makes `dark:` utilities respond to the `.dark` class the app toggles. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   /* Apple design tokens */
   --apple-blue: #007aff;

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion, type Variants } from "framer-motion";
 import {
-  ArrowRight,
   BookOpen,
   Brain,
   FileText,
@@ -37,6 +36,8 @@ interface QuizAttemptRow {
   completed_at: string;
   quiz_id: string;
 }
+
+const weekdayOrder = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const container: Variants = {
   hidden: {},
@@ -79,8 +80,7 @@ export default function DashboardPage() {
           supabase
             .from("quiz_attempts")
             .select("id,score,total_questions,completed_at,quiz_id")
-            .order("completed_at", { ascending: false })
-            .limit(8),
+            .order("completed_at", { ascending: false }),
           supabase.from("flashcard_decks").select("id", { count: "exact" }),
         ]);
 
@@ -165,15 +165,23 @@ export default function DashboardPage() {
     },
   ];
 
-  const chartData = [
-    { label: "Mon", value: 45 },
-    { label: "Tue", value: 60 },
-    { label: "Wed", value: 38 },
-    { label: "Thu", value: 72 },
-    { label: "Fri", value: 55 },
-    { label: "Sat", value: 80 },
-    { label: "Sun", value: 64 },
-  ];
+  const chartData = useMemo(() => {
+    const buckets = new Map<string, { sum: number; count: number }>();
+    for (const w of weekdayOrder) buckets.set(w, { sum: 0, count: 0 });
+
+    for (const a of quizAttempts) {
+      const day = weekdayOrder[new Date(a.completed_at).getDay()];
+      const bucket = buckets.get(day);
+      if (!bucket) continue;
+      bucket.sum += a.total_questions > 0 ? (a.score / a.total_questions) * 100 : 0;
+      bucket.count += 1;
+    }
+
+    return weekdayOrder.map((w) => {
+      const b = buckets.get(w)!;
+      return { label: w, value: b.count > 0 ? Math.round(b.sum / b.count) : 0 };
+    });
+  }, [quizAttempts]);
 
   const quickActions = [
     {
@@ -293,12 +301,6 @@ export default function DashboardPage() {
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
               Recent activity
             </h2>
-            <Link
-              href="/dashboard"
-              className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400"
-            >
-              View all <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
           </div>
 
           {loading ? (
@@ -397,6 +399,13 @@ export default function DashboardPage() {
                 {Array.from({ length: 7 }).map((_, i) => (
                   <Skeleton key={i} className="h-full flex-1 rounded-lg" />
                 ))}
+              </div>
+            ) : chartData.every((d) => d.value === 0) ? (
+              <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
+                <TrendingUp className="h-8 w-8 text-gray-300 dark:text-gray-600" />
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Complete a quiz to see your weekly performance.
+                </p>
               </div>
             ) : (
               <div className="flex h-40 items-end gap-3">
