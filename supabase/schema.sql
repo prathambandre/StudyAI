@@ -14,9 +14,11 @@ CREATE TABLE documents (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
+  file_name TEXT,
   file_path TEXT NOT NULL,
   file_size INT,
   page_count INT,
+  status TEXT NOT NULL DEFAULT 'ready',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -36,7 +38,8 @@ CREATE TABLE conversations (
   user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
   title TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- messages
@@ -45,6 +48,7 @@ CREATE TABLE messages (
   conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
   content TEXT NOT NULL,
+  sources JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -54,6 +58,7 @@ CREATE TABLE quizzes (
   user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
   title TEXT NOT NULL,
+  description TEXT,
   questions JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -75,7 +80,10 @@ CREATE TABLE flashcard_decks (
   user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
   title TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  description TEXT,
+  card_count INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- flashcards
@@ -104,10 +112,14 @@ CREATE INDEX idx_flashcard_decks_user_id ON flashcard_decks(user_id);
 CREATE INDEX idx_flashcards_deck_id ON flashcards(deck_id);
 
 -- Auto-create profile on signup
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
-  INSERT INTO profiles (id, email, full_name, avatar_url)
+  INSERT INTO public.profiles (id, email, full_name, avatar_url)
   VALUES (
     NEW.id,
     NEW.email,
@@ -116,11 +128,32 @@ BEGIN
   );
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
+-- Keep conversation.updated_at in sync whenever a new message is added.
+CREATE OR REPLACE FUNCTION public.touch_conversation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE public.conversations
+  SET updated_at = now()
+  WHERE id = NEW.conversation_id;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+DROP TRIGGER IF EXISTS on_message_inserted ON messages;
+CREATE TRIGGER on_message_inserted
+  AFTER INSERT ON messages
+  FOR EACH ROW EXECUTE FUNCTION public.touch_conversation();
 
 -- Row Level Security
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;

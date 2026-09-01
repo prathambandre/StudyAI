@@ -48,15 +48,26 @@ export default function LoginPage() {
     setLoading(true);
     setErrors({});
 
-    const { error } = await signIn(email, password);
+    try {
+      const { error } = await signIn(email, password);
 
-    if (error) {
-      setErrors({ general: error.message });
+      if (error) {
+        setErrors({ general: error.message });
+        setLoading(false);
+        return;
+      }
+
+      router.push("/dashboard");
+    } catch (err) {
+      console.error("Login error:", err);
+      setErrors({
+        general:
+          err instanceof Error
+            ? err.message
+            : "Something went wrong. Please try again.",
+      });
       setLoading(false);
-      return;
     }
-
-    router.push("/dashboard");
   }
 
   return (
