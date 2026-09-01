@@ -3,9 +3,28 @@ interface PDFResult {
   pageCount: number;
 }
 
+interface PdfJsWorkerGlobal {
+  pdfjsWorker?: {
+    WorkerMessageHandler: unknown;
+  };
+}
+
 export async function extractTextFromPDF(buffer: Buffer): Promise<PDFResult> {
+  // Run pdf.js entirely on the main thread. Next.js's bundler can't resolve
+  // pdf.js's dynamic `import(workerSrc)`, so instead of spawning a worker we
+  // register the worker's message handler on the main thread, which makes
+  // pdf.js parse synchronously without ever touching workerSrc.
+  const g = globalThis as PdfJsWorkerGlobal;
+  if (!g.pdfjsWorker) {
+    const { WorkerMessageHandler } = await import(
+      "pdfjs-dist/legacy/build/pdf.worker.mjs"
+    );
+    g.pdfjsWorker = { WorkerMessageHandler };
+  }
+
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer) });
+  const doc = await loadingTask.promise;
 
   const pageCount = doc.numPages;
 
@@ -19,7 +38,7 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<PDFResult> {
     fullText += pageText + "\n\n";
   }
 
-  void (doc as unknown as { destroy: () => Promise<void> }).destroy();
+  void (loadingTask as unknown as { destroy: () => Promise<void> }).destroy();
   return {
     text: fullText.trim(),
     pageCount,
