@@ -96,13 +96,27 @@ export async function POST(request: NextRequest) {
       .select();
 
     if (chunkError) {
+      await cleanupFailedUpload(supabase, document.id, filePath);
       return NextResponse.json(
-        { error: "Failed to store chunks" },
+        { error: "Failed to store chunks. Please try again." },
         { status: 500 }
       );
     }
 
-    const embeddings = await generateEmbeddings(chunks.map((c) => c.content));
+    let embeddings: number[][];
+    try {
+      embeddings = await generateEmbeddings(chunks.map((c) => c.content));
+    } catch (e) {
+      console.error("Upload: embedding failed:", e);
+      await cleanupFailedUpload(supabase, document.id, filePath);
+      return NextResponse.json(
+        {
+          error:
+            "Upload paused: the AI embedding quota is temporarily exhausted. Please wait a minute and try again.",
+        },
+        { status: 503 }
+      );
+    }
 
     for (let i = 0; i < insertedChunks.length; i++) {
       addEmbedding(insertedChunks[i].id, embeddings[i], {
@@ -133,5 +147,19 @@ export async function POST(request: NextRequest) {
       { error: "Internal server error" },
       { status: 500 }
     );
+  }
+}
+
+async function cleanupFailedUpload(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  documentId: string,
+  filePath: string
+) {
+  await supabase.from("chunks").delete().eq("document_id", documentId);
+  await supabase.from("documents").delete().eq("id", documentId);
+  try {
+    fs.unlinkSync(filePath);
+  } catch {
+    // Non-fatal: leftover file in public/uploads is git-ignored.
   }
 }

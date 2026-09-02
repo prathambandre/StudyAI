@@ -63,6 +63,7 @@ async function fetchFlashcardData() {
     supabase
       .from("documents")
       .select("id,title")
+      .eq("status", "ready")
       .order("created_at", { ascending: false }),
   ]);
 

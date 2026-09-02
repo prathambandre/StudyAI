@@ -76,6 +76,7 @@ async function fetchQuizData() {
     supabase
       .from("documents")
       .select("id,title")
+      .eq("status", "ready")
       .order("created_at", { ascending: false }),
     supabase
       .from("quiz_attempts")

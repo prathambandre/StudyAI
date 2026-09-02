@@ -53,6 +53,7 @@ export default function Header() {
         supabase
           .from("documents")
           .select("id,title")
+          .eq("status", "ready")
           .ilike("title", pattern)
           .limit(5),
         supabase

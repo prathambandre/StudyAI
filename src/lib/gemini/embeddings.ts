@@ -21,7 +21,7 @@ function getEmbeddingModel() {
   return getGenAI().getGenerativeModel({ model: "gemini-embedding-001" });
 }
 
-async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
   let lastError: unknown;
   for (let i = 0; i < attempts; i++) {
     try {

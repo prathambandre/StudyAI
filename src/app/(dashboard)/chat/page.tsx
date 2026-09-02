@@ -101,6 +101,7 @@ function ChatContent() {
           supabase
             .from("documents")
             .select("id,title")
+            .eq("status", "ready")
             .order("created_at", { ascending: false }),
         ]);
 

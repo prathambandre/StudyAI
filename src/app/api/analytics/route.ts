@@ -18,7 +18,7 @@ export async function GET() {
       { count: totalDocuments },
       { count: totalQuizzes },
       { data: quizAttempts },
-      { count: totalFlashcards },
+      { data: flashcardDecks },
       { data: recentDocuments },
       { data: recentQuizAttempts },
     ] = await Promise.all([
@@ -35,8 +35,8 @@ export async function GET() {
         .select("score, total_questions")
         .eq("user_id", user.id),
       supabase
-        .from("flashcards")
-        .select("*", { count: "exact", head: true })
+        .from("flashcard_decks")
+        .select("card_count")
         .eq("user_id", user.id),
       supabase
         .from("documents")
@@ -97,11 +97,19 @@ export async function GET() {
         score: Math.round((a.score / a.total_questions) * 100),
       })) ?? [];
 
+    const totalFlashcardCount = Array.isArray(flashcardDecks)
+      ? flashcardDecks.reduce(
+          (sum: number, d: { card_count?: number | null }) =>
+            sum + (d.card_count ?? 0),
+          0
+        )
+      : 0;
+
     return NextResponse.json({
       totalDocuments: totalDocuments ?? 0,
       totalQuizzes: totalQuizzes ?? 0,
       averageScore: Math.round(averageScore),
-      totalFlashcards: totalFlashcards ?? 0,
+      totalFlashcards: totalFlashcardCount,
       recentActivity: recentActivity.slice(0, 10),
       quizScoresOverTime,
     });
